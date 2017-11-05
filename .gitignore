@@ -1,0 +1,7 @@
+node_modules/
+artifacts/
+.expo/
+npm-debug.*
+.DS_Store
+android/build/*
+android/app/build/*

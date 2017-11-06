@@ -21,11 +21,17 @@ class PedidoContainer extends React.Component<Props, State> {
 	localDB = Database.getPouchDBInstance();
 
 	constructor() {
-		super();		
+		super();
 	}
 	
 	componentDidMount() {
-			
+		this.localDB.find({
+			selector: {_id: { $gt: 'proposta:', $lt: 'propostaX' }}
+		}).then(function (result) {
+			console.log(result)
+		}).catch(function (err) {
+			console.log(err);
+		});	
 	}
 
 	onSelecionarCliente(itemValue: any) {
@@ -54,6 +60,7 @@ class PedidoContainer extends React.Component<Props, State> {
 			desc: '0',
 			obs: 'Teste de obs',
 			vcto: '2018-04-30',
+			usuario: 'lauro',
 			itens: [
 				{ 
 					idprod: '1',

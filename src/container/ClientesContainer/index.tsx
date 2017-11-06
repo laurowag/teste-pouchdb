@@ -24,7 +24,7 @@ class ClientesContainer extends React.Component<Props, State> {
 		}).then(function (result) {
 			if (result) {
 				const clientes = [];
-				result.docs.map(registro => clientes.push(...registro.itens));
+				result.docs.map(registro => clientes.push(...registro.itens.filter(cliente => (!cliente.vendedor || cliente.vendedor === '*' || cliente.vendedor.indexOf('lauro;') >= 0))));
 				props.carregar(clientes);
 			}
 		}).catch(function (err) {

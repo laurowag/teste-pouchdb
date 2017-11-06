@@ -46,7 +46,6 @@ class PedidoContainer extends React.Component<Props, State> {
 			referencia: 'proposta:01',
 			dataemi: '2017-11-01',
 			idcli: '1',
-			cliente: 'Nome do cliente',
 			idend: '1',
 			idttr: '1',
 			obssit: 'Em criação',
@@ -56,7 +55,8 @@ class PedidoContainer extends React.Component<Props, State> {
 			obs: 'Teste de obs',
 			vcto: '2018-04-30',
 			itens: [
-				{ idprod: '1',
+				{ 
+					idprod: '1',
 					produto: 'Descrição do produto',
 					qtd: '1',
 					descv: '0',
@@ -64,6 +64,7 @@ class PedidoContainer extends React.Component<Props, State> {
 					custo: '5',
 					frete: '0',
 					descrat: '0',
+					idtpr: '1',
 				}
 			],
 		};

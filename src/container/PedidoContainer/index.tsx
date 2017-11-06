@@ -1,6 +1,8 @@
 import * as React from "react";
 import { connect } from "react-redux";
 
+import uuid from  'react-native-uuid';
+
 import Database from "../../boot/database";
 
 import Pedido from "../../stories/screens/Pedido";
@@ -39,7 +41,7 @@ class PedidoContainer extends React.Component<Props, State> {
 
 	criarPedido() {
 		const pedido = {
-			_id: 'proposta:01',
+			_id: 'proposta:'+uuid.v4(),
 			idemp: '1',
 			referencia: 'proposta:01',
 			dataemi: '2017-11-01',

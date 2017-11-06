@@ -13,11 +13,24 @@ export interface Props {
 	carregando: boolean;
 }
 export interface State {}
-class PedidoContainer extends React.Component<Props, State> {
+class ProdutoContainer extends React.Component<Props, State> {
 	
 	localDB = Database.getPouchDBInstance();
 	
 	componentDidMount() {
+		const props = this.props;
+		this.localDB.find({
+			selector: {_id: { $gt: 'grupo:', $lt: 'grupoX' }},
+			fields: ['itens']
+		}).then(function (result) {
+			if (result) {
+				const produtos = [];
+				result.docs.map(registro => produtos.push(...registro.itens));
+				props.carregar(produtos);
+			}
+		}).catch(function (err) {
+			console.log(err);
+		});	
 	}
 
 	render() {
@@ -37,7 +50,7 @@ function bindAction(dispatch) {
 }
 
 const mapStateToProps = state => ({
-	dados: state.pedidoReducer.listaConsulta,
-	carregando: state.pedidoReducer.carregando,
+	dados: state.produtosReducer.listaConsulta,
+	carregando: state.produtosReducer.carregando,
 });
-export default connect(mapStateToProps, bindAction)(PedidoContainer);
+export default connect(mapStateToProps, bindAction)(ProdutoContainer);

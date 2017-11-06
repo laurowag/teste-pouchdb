@@ -1,5 +1,6 @@
 import PouchDB from 'pouchdb-react-native';
 PouchDB.plugin(require('pouchdb-find'));
+//PouchDB.debug.enable('*');
 
 class DatabaseConnection {
 
@@ -38,8 +39,9 @@ class DatabaseConnection {
     public replicar(database: string, servidor: string, usuario: string, senha: string, onComplete?: Function, onError?: Function)
     {		
 		const remoteDB = new PouchDB(`http://${usuario}:${senha}@${servidor}:5984/${database}`, {ajax: {cache: false}});
-        const x= this;
+
         //Replicacao de envio
+        const x = this;
         this._pouchDB.replicate.to(remoteDB, {batch_size: 10, 
                 filter: function (doc) {
                     return doc._id.indexOf('proposta:') >= 0;
@@ -47,16 +49,11 @@ class DatabaseConnection {
         })
         .on('complete', function () {
             //Replicacao de retorno
-            x._pouchDB.replicate.from(remoteDB, {batch_size: 10})
+            x._pouchDB.replicate.from(remoteDB, {batch_size: 10, timeout: 20000, retry: true})
             .on('complete', function (info) {
                 console.log(info);
                 if (onComplete) {
                     onComplete(info);
-                }
-            }).on('paused', function (error) {
-                console.log(error);
-                if (onError) {
-                    onError(error);
                 }
             }).on('denied', function (error) {
                 console.log(error);

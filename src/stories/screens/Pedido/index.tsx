@@ -13,7 +13,7 @@ export interface Props {
 	listaClientes: Array<any>;
 	onSelecionarCliente: (itemValue: any, itemPosition: number) => void;
 	onAlterarCampo: (campo: string, valor: any) => void; 
-	onCriar: Function;
+	onCriar: () => void;
 }
 export interface State {}
 class PedidoPage extends React.Component<Props, State> {

@@ -28,6 +28,10 @@ const routes = [
 		caption: "Pedido",
 	},
 	{
+		route: "ListaPedidos",
+		caption: "Lista Pedidos",
+	},
+	{
 		route: "Sync",
 		caption: "Sync",
 	},

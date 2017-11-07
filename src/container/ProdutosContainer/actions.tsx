@@ -10,10 +10,22 @@ export function carregarLista(lista: Object) {
 		lista,
 	};
 }
+export function carregarListaPrecos(lista: Object) {
+	return {
+		type: "PRECOS_CARREGAR_LISTA",
+		lista,
+	};
+}
 export function carregar(dados) {
 	return dispatch => {
 		dispatch(notificarCarregando(true));
 		dispatch(carregarLista(dados));
+	};
+}
+export function carregarPrecos(dados) {
+	return dispatch => {
+		dispatch(notificarCarregando(true));
+		dispatch(carregarListaPrecos(dados));
 	};
 }
 export function filtrarPorNome(texto) {

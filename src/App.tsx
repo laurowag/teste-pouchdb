@@ -12,6 +12,7 @@ import Sidebar from "./container/SidebarContainer";
 import Clientes from "./container/ClientesContainer";
 import Produtos from "./container/ProdutosContainer";
 import Pedido from "./container/PedidoContainer";
+import ListaPedidos from "./container/ListaPedidosContainer";
 import Sync from "./container/SyncContainer";
 
 const Drawer = DrawerNavigator(
@@ -34,6 +35,7 @@ const App = StackNavigator(
 		Produtos: { screen: Produtos },
 		Pedido: { screen: Pedido },
 		Sync: { screen: Sync },
+		ListaPedidos: {screen: ListaPedidos }
 	},
 	{
 		initialRouteName: "Login",

@@ -48,43 +48,47 @@ class SyncContainer extends React.Component<Props, State> {
 	}
 
 	onLimparBanco() {
-		this.localDB.limparDatabase();
+		if (!this.state.sincronizando) {
+			this.localDB.limparDatabase();
+		}
 	}
 
 	onSincronizar() {
-		Database.getPouchDBInstance().put({
-			_id: '_local/confsync',
-			servidor: this.state.servidor,
-			bancoDeDados: this.state.bancoDeDados,
-			usuario: this.state.usuario,
-			senha: this.state.senha,
-			_rev: this.state._rev,
-		});
-		this.setState({ sincronizando: true, concluido: false });
-		this.localDB.replicar(
-			this.state.bancoDeDados,
-			this.state.servidor,
-			this.state.usuario,
-			this.state.senha,
-			() => {
-				Toast.show({
-					text: "Sincronização concluída!",
-					duration: 2000,
-					position: "top",
-					textStyle: { textAlign: "center" },
-				});
-				this.setState({ sincronizando: false, concluido: true, comErro: false });
-			},
-			(erro) => {
-				Toast.show({
-					text: `Erro: ${erro.message}`,
-					duration: 2000,
-					position: "top",
-					textStyle: { textAlign: "center" },
-				});
-				this.setState({ sincronizando: false, concluido: true, comErro: true });
-			}
-		);
+		if (!this.state.sincronizando) {
+			Database.getPouchDBInstance().put({
+				_id: '_local/confsync',
+				servidor: this.state.servidor,
+				bancoDeDados: this.state.bancoDeDados,
+				usuario: this.state.usuario,
+				senha: this.state.senha,
+				_rev: this.state._rev,
+			}).then(res => this.setState({_rev: res.rev}));
+			this.setState({ sincronizando: true, concluido: false });
+			this.localDB.replicar(
+				this.state.bancoDeDados,
+				this.state.servidor,
+				this.state.usuario,
+				this.state.senha,
+				() => {
+					Toast.show({
+						text: "Sincronização concluída!",
+						duration: 2000,
+						position: "top",
+						textStyle: { textAlign: "center" },
+					});
+					this.setState({ sincronizando: false, concluido: true, comErro: false });
+				},
+				(erro) => {
+					Toast.show({
+						text: `Erro: ${erro.message}`,
+						duration: 2000,
+						position: "top",
+						textStyle: { textAlign: "center" },
+					});
+					this.setState({ sincronizando: false, concluido: true, comErro: true });
+				}
+			);
+		}
 	}
 
 	alterarTexto(texto, campo) {

@@ -35,7 +35,7 @@ class ProdutosPage extends React.Component<Props, State> {
 					{this.props.carregando ? (<Text>Carregando...</Text>) : null}
 					<Card>
 						{this.props.dados.map((produto, i) => {
-							return <CardItem key={i} cardBody={true}><Text>{produto.desc}</Text></CardItem>
+							return <CardItem key={i} cardBody={true}><Text>{produto.desc} - {produto.precos}</Text></CardItem>
 						})}
 					</Card>
 

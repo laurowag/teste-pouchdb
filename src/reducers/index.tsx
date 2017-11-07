@@ -5,6 +5,7 @@ import homeReducer from "../container/HomeContainer/reducer";
 import clientesReducer from "../container/ClientesContainer/reducer";
 import produtosReducer from "../container/ProdutosContainer/reducer";
 import pedidoReducer from "../container/PedidoContainer/reducer";
+import listaPedidosReducer from "../container/ListaPedidosContainer/reducer";
 
 export default combineReducers({
 	form: formReducer,
@@ -12,4 +13,5 @@ export default combineReducers({
 	clientesReducer,
 	produtosReducer,
 	pedidoReducer,
+	listaPedidosReducer,
 });

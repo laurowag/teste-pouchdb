@@ -4,10 +4,11 @@ import { connect } from "react-redux";
 import Database from "../../boot/database";
 
 import Produtos from "../../stories/screens/Produtos";
-import { carregar, filtrarPorNome } from "./actions";
+import { carregar, carregarPrecos, filtrarPorNome } from "./actions";
 export interface Props {
 	navigation: any;
 	carregar: Function;
+	carregarPrecos:Function;
 	pesquisar: Function;
 	dados: Array<any>;
 	carregando: boolean;
@@ -30,6 +31,18 @@ class ProdutoContainer extends React.Component<Props, State> {
 			}
 		}).catch(function (err) {
 			console.log(err);
+		});
+		this.localDB.find({
+			selector: {_id: { $gt: 'preco:', $lt: 'precoX' }},
+			fields: ['itens']
+		}).then(function (result) {
+			if (result) {
+				const precos = [];
+				result.docs.map(registro => precos.push(registro));
+				props.carregarPrecos(precos);
+			}
+		}).catch(function (err) {
+			console.log(err);
 		});	
 	}
 
@@ -45,6 +58,7 @@ class ProdutoContainer extends React.Component<Props, State> {
 function bindAction(dispatch) {
 	return {
 		carregar: dados => dispatch(carregar(dados)),
+		carregarPrecos: dados => dispatch(carregarPrecos(dados)),
 		pesquisar: texto => dispatch(filtrarPorNome(texto)),
 	};
 }

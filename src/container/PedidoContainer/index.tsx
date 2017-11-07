@@ -55,7 +55,7 @@ class PedidoContainer extends React.Component<Props, State> {
 			idend: '1',
 			idttr: '1',
 			obssit: 'Em criação',
-			sit: '1',
+			sit: '0',
 			frete: '0',
 			desc: '0',
 			obs: 'Teste de obs',

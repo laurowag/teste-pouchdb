@@ -1,0 +1,873 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.0.0"
+	xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 http://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd">
+ 
+    <!-- configure the Camel SQL component to use the JDBC data source -->
+    <reference filter="(osgi.jndi.service.name=jdbc/firebird/gerencial)" id="gerencial" interface="javax.sql.DataSource"/>
+
+    <bean id="sql" class="org.apache.camel.component.sql.SqlComponent">
+        <property name="dataSource" ref="gerencial"/>
+    </bean>
+
+    <camelContext id="sincronizar-produto" streamCache="false" xmlns="http://camel.apache.org/schema/blueprint" trace="false">
+
+        <propertyPlaceholder id="props" location="file:${karaf.home}/deploy/configuracoes.properties"/>
+
+        <dataFormats>
+            <json id="json" library="Gson"/>
+        </dataFormats>
+        
+        <route id="timer">
+            <from uri="timer:foo?period=30s" />
+            <log message="START IMP Pedido" />
+            <to uri="direct:processar-pedidos" />
+            <log message="START SYNC Clientes" />
+            <to uri="direct:consultar-clientes" />
+            <log message="START SYNC Produtos" />
+            <to uri="direct:consultar-produtos" />
+            <log message="START SYNC Precos" />
+            <to uri="direct:consultar-precos" />
+            <log message="START SYNC Pedidos" />
+            <to uri="direct:consultar-pedidos" />
+            <log message="END SYNC" />            
+        </route>
+
+        <!-- DOCUMENT DESIGN
+
+            Incluir um documento para gerenciar os documentos que devem ser excluído.
+        
+            {
+            "_id": "_design/alteracao",
+            "_rev": "16-e64c6da0a4edc213c4f9a09e1bbe0947",
+            "views": {
+                "alteracao": {
+                "map": "function (doc) {\n  emit(doc._id, {alteracao: doc.alteracao, _rev: doc._rev, versao: doc.versao});\n}"
+                },
+                "produto": {
+                "map": "function (doc) {\n    if (doc._id > 'grupo' && doc._id < 'grupoX') {\n      for (var i in doc.itens) {\n        emit(doc.itens[i].desc, {doc: doc._id, item: i});\n      }\n    }\n}"
+                }
+            },
+            "language": "javascript"
+            }        
+
+
+            {
+                "_id": "_design/filtros",
+                "_rev": "3-8c9bcfeeab0e562bbd30f44f496af747",
+                "filters": {
+                    "porUsuario": "function(doc, req) {if((doc._id>='proposta:')&&(doc._id<='propostaX')){return doc.usuario===req.query.usuario;}else{return true;}}"
+                }
+            }
+       
+        -->
+
+        <route id="processar-pedidos">
+            <from uri="direct:processar-pedidos" />
+            <setHeader headerName="CamelHttpMethod">
+                <constant>GET</constant>
+            </setHeader>
+            <setHeader headerName="CamelHttpUri">
+                <simple>http://{{couchDBServer}}/{{couchDBDatabase}}/_design/alteracao/_view/pedidos-processar?include_docs=true</simple>
+            </setHeader>
+            <setBody>
+                <constant>null</constant>
+            </setBody>
+            <doTry>
+                <to uri="http4:x?authenticationPreemptive=true&amp;authUsername={{couchDBUserName}}&amp;authPassword={{couchDBPassword}}&amp;proxyAuthHost=127.0.0.1&amp;proxyAuthPort=33128&amp;connectionClose=true"/>
+                <unmarshal ref="json" />
+                <split>
+                    <simple>${body.get('rows')}</simple>  
+                    <to uri="direct:importar-pedido"/>
+                </split>
+                <doCatch>            
+                    <exception>java.lang.Exception</exception>
+                    <log message="erro ${body}" />
+                </doCatch>
+            </doTry>
+        </route>
+
+        <route id="importar-pedido">
+            <from uri="direct:importar-pedido" />            
+            <setBody>
+                <simple>${body.get('doc')}</simple>
+            </setBody>
+            <marshal ref="json" />
+            <convertBodyTo type="String" />
+            <unmarshal ref="json" />
+            <setProperty propertyName="tempBody">
+                <simple>${body}</simple>
+            </setProperty>
+            <marshal ref="json" />
+            <convertBodyTo type="String" />
+            <unmarshal ref="json" />
+            <setProperty propertyName="tempId">
+                <simple>${body.get('_id')}</simple>
+            </setProperty>
+            <setProperty propertyName="tempRev">
+                <simple>${body.get('_rev')}</simple>
+            </setProperty>
+            <script>
+                <simple>${body.put('operacao','importarTransacaoPedido')}</simple>
+            </script>
+            <script>
+                <simple>${body.put('dados', exchangeProperty[tempBody])}</simple>
+            </script>
+            <marshal ref="json" />
+            <convertBodyTo type="String" />
+            <log message="${body}" />
+            <setExchangePattern pattern="InOut"/>
+            <to uri="activemq:queue:agrotis.legado.AGR.erp?replyToType=Exclusive&amp;username=agrotis&amp;password=agrotis"/>            
+            <unmarshal ref="json" />
+            <log message="${body}" />
+            <choice>
+                <when>
+                    <simple>${in.headers.http-status} == '200'</simple>
+                    <to uri="direct:aceitar-proposta"/>
+                </when>
+                <otherwise>
+                    <to uri="direct:rejeitar-proposta"/>
+                </otherwise>
+            </choice>
+        </route>
+
+        <!--
+        <route id="excluir-proposta">
+            <from uri="direct:excluir-proposta" />
+            <setBody>
+                <simple>null</simple>
+            </setBody>
+            <setHeader headerName="CamelHttpMethod">
+                <constant>DELETE</constant>
+            </setHeader>
+            <setHeader headerName="CamelHttpUri">
+                <simple>http://{{couchDBServer}}/{{couchDBDatabase}}/${exchangeProperty[tempId]}?rev=${exchangeProperty[tempRev]}</simple>
+            </setHeader>
+            <to uri="http4:x?authenticationPreemptive=true&amp;authUsername={{couchDBUserName}}&amp;authPassword={{couchDBPassword}}&amp;proxyAuthHost=127.0.0.1&amp;proxyAuthPort=33128&amp;connectionClose=true"/>
+        </route>
+        -->
+
+        <route id="rejeitar-proposta">
+            <from uri="direct:rejeitar-proposta" />
+            <setProperty propertyName="erro">
+                <simple>${body.get('mensagem')}</simple>
+            </setProperty>
+            <setBody>
+                <simple>${exchangeProperty[tempBody]}</simple>
+            </setBody>
+            <script>
+                <simple>${body.put('sit', '2')}</simple>
+            </script>
+            <script>
+                <simple>${body.put('erro', exchangeProperty[erro])}</simple>
+            </script>
+            <script>
+                <simple>${body.put('obssit', 'REJEITADO')}</simple>
+            </script>
+            <marshal ref="json" />
+            <convertBodyTo type="String" />
+            <setHeader headerName="CamelHttpMethod">
+                <constant>PUT</constant>
+            </setHeader>
+            <setHeader headerName="CamelHttpUri">
+                <simple>http://{{couchDBServer}}/{{couchDBDatabase}}/${exchangeProperty[tempId]}?rev=${exchangeProperty[tempRev]}</simple>
+            </setHeader>
+            <to uri="http4:x?authenticationPreemptive=true&amp;authUsername={{couchDBUserName}}&amp;authPassword={{couchDBPassword}}&amp;proxyAuthHost=127.0.0.1&amp;proxyAuthPort=33128&amp;connectionClose=true"/>
+        </route>
+
+        <route id="aceitar-proposta">
+            <from uri="direct:aceitar-proposta" />
+            <log message="${body.get('retorno').get('codtransacao')}" />
+            <setProperty propertyName="codTransacao">
+                <simple>${body.get('retorno').get('codtransacao')}</simple>
+            </setProperty>
+            <setBody>
+                <simple>${exchangeProperty[tempBody]}</simple>
+            </setBody>
+            <script>
+                <simple>${body.put('sit', '4')}</simple>
+            </script>
+            <script>
+                <simple>${body.put('idtr', exchangeProperty[codTransacao])}</simple>
+            </script>
+            <script>
+                <simple>${body.put('obssit', 'IMPORTADO')}</simple>
+            </script>
+            <marshal ref="json" />
+            <convertBodyTo type="String" />
+            <setHeader headerName="CamelHttpMethod">
+                <constant>PUT</constant>
+            </setHeader>
+            <setHeader headerName="CamelHttpUri">
+                <simple>http://{{couchDBServer}}/{{couchDBDatabase}}/${exchangeProperty[tempId]}?rev=${exchangeProperty[tempRev]}</simple>
+            </setHeader>
+            <to uri="http4:x?authenticationPreemptive=true&amp;authUsername={{couchDBUserName}}&amp;authPassword={{couchDBPassword}}&amp;proxyAuthHost=127.0.0.1&amp;proxyAuthPort=33128&amp;connectionClose=true"/>
+        </route>
+
+        <!-- INICIO PRODUTOS -->
+        <route id="consultar-produtos">
+            <from uri="direct:consultar-produtos" />
+            <setHeader headerName="CamelSqlQuery">
+                <constant>
+                    select trim(grupprod.codgrup) as codgrup,
+                        trim(grupprod.descricao) as descgrup,
+                        produto.codprod,
+                        trim(produto.descprod) as descprod,
+                        trim(produto.codunid) as codunid,
+                        produto.multiplicador as mult,
+                        trim(fornecedor.nome) as forn,
+                        coalesce(grupprod.datahoraalt,grupprod.datahoracad) as altGrupo,
+                        coalesce(produto.datahoraalt,produto.datahoracad) as altProd,
+                        trim(g4.descricao) as descgrup4,
+                        trim(g6.descricao) as descgrup6,
+                        coalesce(g4.datahoraalt,g4.datahoracad) as altG4,
+                        coalesce(g6.datahoraalt,g6.datahoracad) as altG6
+                    from produto
+                    inner join grupprod on grupprod.codgrup=substring(produto.codgrup from 1 for 2)
+                    left join grupprod g4 on g4.codgrup=substring(produto.codgrup from 1 for 4)
+                    left join grupprod g6 on g6.codgrup=produto.codgrup
+                    left join clifor fornecedor on fornecedor.codclifor=produto.codclifor
+                    where produto.ativo=1 and grupprod.ativo=1
+                    order by produto.codgrup, produto.descprod
+                </constant>
+            </setHeader>
+            <to uri="sql:x"/>
+            <to uri="direct:converter-json-produtos"/>
+        </route>
+
+        <route id="converter-json-produtos">
+            <from uri="direct:converter-json-produtos"/>
+            <script>
+                <groovy>
+                    class Produto {
+                        String id;
+                        String desc;
+                        String grupo4;
+                        String grupo6;
+                        BigDecimal mult;
+                        String forn;
+                    }
+
+                    class GrupoFilho {
+                        String id;
+                        String desc;
+                    }
+
+                    class Grupo {
+                        String _id;
+                        String desc;
+                        String alteracao;
+                        String _rev;
+                        String versao;
+                        List&lt;Produto&gt; itens;
+                    }
+
+                    def retorno = new ArrayList&lt;Grupo&gt;();
+                    def codgrupo = '';
+                    def grupo;
+                    def dhAlteracao;
+                    def grupo4;
+                    def grupo6;
+                    request.body.eachWithIndex { item, index -> processo: {
+                        if (codgrupo != item.codgrup) {
+                            grupo = new Grupo();
+                            grupo._id = 'grupo:'+item.codgrup;
+                            grupo.desc = item.descgrup;
+                            grupo.itens = new ArrayList&lt;Produto&gt;();
+                            grupo.versao = '1';
+                            retorno.add(grupo);
+                            codgrupo = item.codgrup;
+                            dhAlteracao = item.altGrupo;
+                            grupo.alteracao = dhAlteracao.getTime().toString();
+                        }
+                        def produto = new Produto();
+                        produto.id = item.codprod;
+                        produto.desc = item.descprod;
+                        produto.forn = item.forn;
+                        produto.grupo4 = item.descgrup4;
+                        produto.grupo6 = item.descgrup6;                        
+                        if (item.altProduto > dhAlteracao) {
+                            dhAlteracao = item.altProduto;
+                            grupo.alteracao = dhAlteracao.getTime().toString();
+                        }
+                        if (item.altG4 > dhAlteracao) {
+                            dhAlteracao = item.altG4;
+                            grupo.alteracao = dhAlteracao.getTime().toString();
+                        }
+                        if (item.altG6 > dhAlteracao) {
+                            dhAlteracao = item.altG6;
+                            grupo.alteracao = dhAlteracao.getTime().toString();
+                        }
+                        if ((item.mult != 1) &amp;&amp; (item.mult != 0)) {
+                            produto.mult = new BigDecimal(item.mult.toString());
+                        }
+                        grupo.itens.add(produto);
+                    }};
+                    request.body = retorno;
+                </groovy>
+            </script>
+            <to uri="direct:dividir-linhas" />
+        </route>
+        <!-- FIM PRODUTOS -->
+
+        <!-- INICIO CLIENTES -->
+        <route id="consultar-clientes">
+            <from uri="direct:consultar-clientes" />
+            <setHeader headerName="CamelSqlQuery">
+                <constant>
+                    select
+                        clifor.codclifor,
+                        unidclifor.codunidclifor,
+                        trim(clifor.nome) as nome,
+                        trim(clifor.cgccpf) as cgccpf,
+                        trim(unidclifor.endereco) as endereco,
+                        trim(cidade.cidade) as cidade,
+                        trim(cidade.uf) as uf,
+                        trim(unidclifor.fone) as fone,
+                        trim(unidclifor.email) as email,
+                        coalesce(clifor.datahoraalt, clifor.datahoracad) as altCliente,
+                        coalesce(unidclifor.datahoraalt, unidclifor.datahoracad) as altUnidClifor
+                    from unidclifor
+                    inner join clifor on clifor.codclifor=unidclifor.codclifor
+                    inner join cidade on cidade.codcidade=unidclifor.codcidade
+                    where unidclifor.inativo=0 and clifor.ecliente=1 and clifor.cliente_ativo=1
+                    order by clifor.nome, clifor.codclifor, unidclifor.codunidclifor
+                </constant>
+            </setHeader>
+            <to uri="sql:x"/>
+            <to uri="direct:converter-json-clientes"/>
+        </route>
+
+        <route id="converter-json-clientes">
+            <from uri="direct:converter-json-clientes"/>
+            <script>
+                <groovy>
+                    class Endereco {
+                        String id;
+                        String end;
+                        String cid;
+                        String uf;
+                        String fone;
+                        String email;                        
+                    }
+
+                    class Cliente {
+                        String id;
+                        String nome;
+                        String insc;
+                        List&lt;Endereco&gt; ends;
+                        BigDecimal lim;                        
+                    }
+
+                    class Doc {
+                        String _id;
+                        String alteracao;
+                        String _rev;
+                        String versao;
+                        List&lt;Cliente&gt; itens;
+                    }
+
+                    def retorno = new ArrayList&lt;Doc&gt;();
+                    def codclifor = 0;
+                    def letra = null;
+                    def cliente;
+                    def dhAlteracao;
+                    def doc;
+                    request.body.eachWithIndex { item, index -> processo: {
+                        if ((letra == null) || (!item.nome.substring(0,1).equals(letra))) {
+                            doc = new Doc()
+                            doc._id = 'cliente:'+item.nome.substring(0,1);
+                            doc.itens = new ArrayList&lt;Cliente&gt;();
+                            doc.versao = '1';
+                            codclifor = 0;
+                            letra = item.nome.substring(0,1);
+                            retorno.add(doc);
+                        }
+                        if (codclifor != item.codclifor) {
+                            cliente = new Cliente();
+                            cliente.id = item.codclifor.toString();
+                            cliente.nome = item.nome;
+                            cliente.insc = item.cgccpf;
+                            cliente.ends = new ArrayList&lt;Endereco&gt;();
+                            dhAlteracao = item.altCliente;
+                            doc.alteracao = dhAlteracao.getTime().toString();
+                            doc.itens.add(cliente);
+                            codclifor = item.codclifor;
+                        }
+                        def endereco = new Endereco();
+                        endereco.id = item.codunidclifor.toString();
+                        endereco.end = item.end;
+                        endereco.cid = item.cid;
+                        endereco.uf = item.uf;
+                        endereco.fone = item.fone;
+                        endereco.email = item.email;
+                        cliente.ends.add(endereco);
+                        if (item.altUnidclifor > dhAlteracao) {
+                            dhAlteracao = item.altUnidclifor;
+                            doc.alteracao = dhAlteracao.getTime().toString();
+                        }                        
+                    }}
+                    request.body = retorno;
+                </groovy>
+            </script>
+            <to uri="direct:dividir-linhas"/>
+        </route>
+        <!-- FIM CLIENTES -->
+
+
+        <!-- INICIO PRECOS -->
+        <route id="consultar-precos">
+            <from uri="direct:consultar-precos" />
+            <setHeader headerName="CamelSqlQuery">
+                <constant>
+                    select 
+                        'precos:'||trim(substring(grupprod.codgrup from 1 for 4))||':'||cast(t.codtabpreco as varchar(10)) as id, 
+                        t.codtabpreco,
+                        trim(t.descricao) as desc,
+                        trim(t.nomecoluna) as nome,
+                        t.tabelaporvencimento as porvcto,
+                        (case when t.tipovcto &gt; 0 then t.tipovcto else null end) as tvcto,
+                        (case when t.verjuros &gt; 0 then t.verjuros else null end) as verjuros,
+                        cast(t.databasejuro as date) as dbasejuro,
+                        (case when t.jurospreco &gt; 0 then cast(t.jurospreco as varchar(15)) else null end) as jurospreco,
+                        (case when t.carencia &gt; 0 then t.carencia else null end) as carencia,
+                        (case when t.antecipacao &gt; 0 then cast(t.antecipacao as varchar(15)) else null end) as antec,
+                        (case when t.tipoantec &gt; 0 then t.tipoantec else null end) as tantec,
+                        (case when t.juros &gt; 0 then cast(t.juros as varchar(15)) else null end) as juros,
+                        (case when t.tipojuros &gt; 0 then t.tipojuros else null end) as tjuros,
+                        (case when t.TIPOCALCULOLUCROBRUTO &gt; 0 then t.TIPOCALCULOLUCROBRUTO else null end) as tmargem,
+                        (case when t.ignorardias = 1 then 1 else null end) as ignorardias,
+                        (case when t.mediadias = 1 then 1 else null end) as mediadias,
+                        t.codtipotr as f_tipotr,
+                        t.codmoeda as moeda,
+                        t.codtipoclifor as f_tipocf,
+                        t.codsetor as f_setor,
+                        (case when trim(t.uf) &lt;&gt; '' then trim(t.uf) else null end) as f_uf,
+                        t.codempresa as f_empresa,
+                        t.codplanopag as f_planopag,
+                        0 as f_grupofilial,
+                        (case when t.qtdadeparc &gt; 0 then t.qtdadeparc else null end) as f_parcelas,
+                        (case when t.diasfatura &gt; 0 then t.diasfatura else null end) as f_diasfatura,
+                        b.codprod as codprod,
+                        trim(b.codembalagem) as codemb,
+                        cast(b.dataini as date) as dataini,
+                        cast(b.vcto as date) as vcto,
+                        (case when b.dias_vcto &gt; 0 then b.dias_vcto else null end) as diasvcto,
+                        cast(b.vctop as date) as vctop,
+                        cast(b.valor as varchar(15)) as preco,
+                        (case when b.antecipacaop &gt; 0 then cast(b.antecipacaop as varchar(15)) else null end) as antec,
+                        (case when b.tipoantecp &gt; 0 then b.tipoantecp else null end) as tantec,
+                        (case when b.pontualidadep &gt; 0 then cast(b.pontualidadep as varchar(15)) else null end) as pont,
+                        (case when b.juros &gt; 0 then cast(b.juros as varchar(15)) else null end) as juros,
+                        (case when b.tipojurop &gt; 0 then b.tipojurop else null end) as tjuros,
+                        cast(b.fdatabase as date) as fdatabase,
+                        (case when b.fiof &gt; 0 then cast(b.fiof as varchar(15)) else null end) as fiof,
+                        (case when b.DESCONTOMAX &gt; 0 then cast(b.DESCONTOMAX as varchar(15)) else null end) as descmax,
+                        coalesce(b.datahoraalt, b.datahoracad) as altItemPreco,
+                        coalesce(t.datahoraalt, t.datahoracad) as altPreco,
+                        b.coditemtabpreco
+                    from itemtabpreco b 
+                    inner join tabpreco t on t.codtabpreco=b.codtabpreco 
+                    inner join produto p on p.codprod=b.codprod
+                    inner join grupprod on grupprod.codgrup=substring(p.codgrup from 1 for 4)
+                    where t.ativo=1 and b.valor > 0 and t.mostravlrvenda=1 and (dataini is null or dataini>=
+                        (select max(dataini) from itemtabpreco it2 where it2.codtabpreco=b.codtabpreco 
+                            and it2.codprod=b.codprod and coalesce(it2.codembalagem,'')=coalesce(b.codembalagem,'') and
+                            it2.dataini&lt;=cast(current_timestamp as date))) and
+                        (t.validade is null or t.validade >= cast(current_timestamp as date))
+                    order by b.codtabpreco, b.codprod
+                </constant>
+            </setHeader>
+            <to uri="sql:x"/>
+            <to uri="direct:converter-json-precos"/>
+        </route>
+
+        <route id="converter-json-precos">
+            <from uri="direct:converter-json-precos"/>
+            <script>
+                <groovy>
+                    class ItemPreco {
+                        String id;
+                        String prod;
+                        String emb;
+                        String dataini;
+                        String vcto;
+                        String diasvcto;
+                        String vctop;
+                        String preco;
+                        String antec;
+                        String tantec;
+                        String pont;
+                        String juros;
+                        String tjuros;
+                        String fdatabase;
+                        String fiof;
+                        String descmax;                        
+                    }
+
+                    class Doc {
+                        String _id;
+                        String alteracao;
+                        String _rev;
+                        String versao;
+                        String id;
+                        String desc;
+                        String nome;
+                        String porvcto;
+                        String tvto;
+                        String verjuros;
+                        String dbasejuro;
+                        String jurospreco;
+                        String antec;
+                        String tantec;
+                        String juros;
+                        String tjuros;
+                        String tmargem;
+                        String ignorardias;
+                        String mediadias;
+                        String f_tipotr;
+                        String moeda;
+                        String f_tipocf;
+                        String f_setor;
+                        String f_uf;
+                        String f_empresa;
+                        String f_planopag;
+                        String f_grupofilial;
+                        String f_parcelas;
+                        String f_diasfatura;
+                        List&lt;ItemPreco&gt; itens;
+                    }
+
+                    def retorno = new ArrayList&lt;Doc&gt;();
+                    def codtabpreco = 0;
+                    def dhAlteracao;
+                    def doc;
+                    request.body.eachWithIndex { item, index -> processo: {
+                        if (codtabpreco != item.codtabpreco) {
+                            doc = new Doc();
+                            doc._id = 'preco:'+item.codtabpreco;
+                            doc.id = item.codtabpreco;
+                            doc.versao = '1';
+                            doc.itens = new ArrayList&lt;ItemPreco&gt;();
+                            codtabpreco = item.codtabpreco;
+
+                            doc.desc = item.desc;
+                            doc.nome = item.nome;
+                            doc.porvcto = item.porvcto;
+                            doc.tvto = item.tvcto;
+                            doc.verjuros = item.verjuros;
+                            doc.dbasejuro = item.dbasejuro;
+                            doc.jurospreco = item.jurospreco;
+                            doc.antec = item.antec;
+                            doc.tantec = item.tantec;
+                            doc.juros = item.juros;
+                            doc.tjuros = item.tjuros;
+                            doc.tmargem = item.tmargem;
+                            doc.ignorardias = item.ignorardias;
+                            doc.mediadias = item.mediadias;
+                            doc.f_tipotr = item.f_tipotr;
+                            doc.moeda = item.moeda;
+                            doc.f_tipocf = item.f_tipocf;
+                            doc.f_setor = item.f_setor;
+                            doc.f_uf = item.f_uf;
+                            doc.f_empresa = item.f_empresa;
+                            doc.f_planopag = item.f_planopag;
+                            doc.f_grupofilial = item.f_grupofilial;
+                            doc.f_parcelas = item.f_parcelas;
+                            doc.f_diasfatura = item.f_diasfatura;
+
+                            dhAlteracao = item.altPreco;
+                            doc.alteracao = dhAlteracao.getTime().toString();
+                            retorno.add(doc);
+                        }
+                        def itemPreco = new ItemPreco();
+                        itemPreco.id = item.coditemtabpreco;
+                        itemPreco.prod = item.codprod;
+                        itemPreco.emb = item.codemb;
+                        itemPreco.dataini = item.dataini;
+                        itemPreco.vcto = item.vcto;
+                        itemPreco.diasvcto = item.diasvcto;
+                        itemPreco.vctop = item.vctop;
+                        itemPreco.preco = item.preco;
+                        itemPreco.antec = item.antec;
+                        itemPreco.tantec = item.tantec;
+                        itemPreco.pont = item.pont;
+                        itemPreco.juros = item.juros;
+                        itemPreco.tjuros = item.tjuros;
+                        itemPreco.fdatabase = item.fdatabase;
+                        itemPreco.fiof = item.fiof;
+                        itemPreco.descmax = item.descmax;
+                        if (item.altItemPreco > dhAlteracao) {
+                            dhAlteracao = item.altItemPreco;
+                            doc.alteracao = dhAlteracao.getTime().toString();
+                        }                        
+                        doc.itens.add(itemPreco);                        
+                    }}
+                    request.body = retorno;
+                </groovy>
+            </script>
+            <to uri="direct:dividir-linhas"/>
+        </route>
+        <!-- FIM PREÇOS -->
+
+        <!-- INICIO PEDIDOS -->
+        <route id="consultar-pedidos">
+            <from uri="direct:consultar-pedidos" />
+            <setHeader headerName="CamelSqlQuery">
+                <!--
+                    Situação pedido:
+                        0: Em aberto (por doc.),
+                        1: Em análise (por doc.),
+                        2: Reprovado (por doc.),
+                        .. se for colocar mais opcoes por documento, siga essa ordem
+                        caso contrário, se for em lote, continue embaixo.
+                        20: Aprovado (lote),
+                        21: Cancelado (lote)
+                -->
+                <constant>
+                    select
+                        transacao.codtransacao,
+                        trim(transacao.referencia) as referencia,
+                        transacao.dataemi,
+                        transacao.codclifor,
+                        transacao.codunidclifor,
+                        transacao.codplanopag,
+                        transacao.codtipotr,
+                        transacao.codfilial,
+                        case when (transacao.cancelada=1) or (transacao.situacao=1 and coalesce(transacao.reprovadomovel,0) = 1) then transacao.obsCancelamento
+                            else '' end as obssit,
+                        case when transacao.cancelada=1 then 21
+                            when transacao.situacao=1 and coalesce(transacao.reprovadoMovel,0)=1 then 2
+                            when transacao.situacao=1 and coalesce(transacao.reprovadoMovel,0)=0 then 1
+                            when transacao.situacao in (2,3) then 20
+                            else 0 end as situacao,
+                        transacao.frete,
+                        transacao.desconto,
+                        transacao.obs,
+
+                        ordtrans.codordtrans,
+                        ordtrans.codprod,
+                        trim(produto.descprod) as produto,
+                        trim(ordtrans.codembalagem) as codembalagem,
+                        ordtrans.qtdade,
+                        ordtrans.descitemv,
+                        case when ordtrans.precomanual=0 then ordtrans.unitario else ordtrans.precomanual end as preco,
+                        ordtrans.customanual as custo,
+                        ordtrans.frete,
+                        ordtrans.vlrdesc,
+                        coalesce(transacao.datahoraalt, transacao.datahoracad) as altTrans,
+                        coalesce(ordtrans.datahoraalt, ordtrans.datahoracad) as altOrdTrans
+
+                    from transacao
+                    left join ordtrans on ordtrans.codfilial=transacao.codfilial and ordtrans.codtransacao=transacao.codtransacao
+                    left join produto on produto.codprod=ordtrans.codprod
+                    inner join unidclifor on unidclifor.codclifor=transacao.codclifor and unidclifor.codunidclifor=transacao.codunidclifor
+                    inner join clifor on clifor.codclifor=unidclifor.codclifor
+                    left join tipotransacao on tipotransacao.codtipotr=transacao.codtipotr
+                    where transacao.dataemi >= '01/01/2017' and
+                        unidclifor.inativo=0 and clifor.ecliente=1 and
+                        clifor.cliente_ativo=1 and 
+                        transacao.codnatu='500'
+                    order by situacao, transacao.dataemi, transacao.codtransacao
+                </constant>
+            </setHeader>
+            <to uri="sql:x"/>
+            <to uri="direct:converter-json-pedidos"/>
+        </route>
+
+        <route id="converter-json-pedidos">
+            <from uri="direct:converter-json-pedidos"/>
+            <script>
+                <groovy>
+                    class ItemPedido {
+                        String id;
+                        String idprod;
+                        String produto;
+                        String idemb;
+                        String idemp;
+                        String idtpr;
+                        String qtd;
+                        String descv;
+                        String preco;
+                        String custo;
+                        String frete;
+                        String descrat;
+                    }
+
+                    class Pedido {
+                        String id;
+                        String idemp;
+                        String referencia;
+                        String dataemi;
+                        String idcli;
+                        String cliente;
+                        String idend;
+                        String idpla;
+                        String idttr;
+                        String obssit;
+                        String sit;
+                        String frete;
+                        String desc;
+                        String obs;
+                        List&lt;ItemPedido&gt; itens;
+                    }
+
+                    class Doc {
+                        String _id;
+                        String alteracao;
+                        String _rev;
+                        String versao;
+                        List&lt;Pedido&gt; itens;
+                    }
+
+                    def retorno = new ArrayList&lt;Doc&gt;();
+                    def doc = null;
+                    def _id = '';
+                    def situacao = -1;
+                    def codtransacao = 0;
+                    def ped;
+                    def dhAlteracao;
+
+                    request.body.eachWithIndex { item, index -> processo: {
+                        if (item.situacao &lt; 20) {
+                            _id = 'proposta:'+item.codtransacao;
+                        } else {
+                            _id = 'pedidos';
+                        }
+                        if ((doc == null) || (!doc._id.equals(_id))) {
+                            doc = new Doc();
+                            doc._id = _id;
+                            doc.versao = '1';
+                            doc.itens = new ArrayList&lt;Pedido&gt;();      
+                            retorno.add(doc);
+                            codtransacao = 0;
+                        }
+                        if (codtransacao != item.codtransacao) {                            
+                            ped = new Pedido();
+                            ped.id = item.codtransacao;
+                            ped.idemp = item.codfilial;
+                            ped.referencia = item.referencia;
+                            ped.dataemi = item.dataemi;
+                            ped.idcli = item.codclifor;
+                            ped.cliente = item.cliente;
+                            ped.idend = item.codunidclifor;
+                            ped.idpla = item.codplanopag;
+                            ped.idttr = item.codtipotr;
+                            ped.obssit = item.obssit;
+                            ped.sit = item.situacao;
+                            ped.frete = item.frete;
+                            ped.desc = item.desconto;
+                            ped.obs = item.obs;
+                            ped.itens = new ArrayList&lt;ItemPedido&gt;();
+                            doc.itens.add(ped);
+                            codtransacao = item.codtransacao;
+                        }
+                        ItemPedido prod = new ItemPedido();
+                        prod.id = item.codordtrans;
+                        prod.idprod = item.codprod;
+                        prod.produto = item.produto;
+                        prod.idemb = item.codembalagem;
+                        prod.qtd = item.qtdade;
+                        prod.descv = item.descitemv;
+                        prod.preco = item.preco;
+                        prod.custo = item.custo;
+                        prod.frete = item.frete;
+                        prod.descrat = item.vlrdesc;
+                        prod.idtpr = item.codtabpreco;
+                        ped.itens.add(prod);
+                        if ((doc.alteracao == null) || (dhAlteracao &lt; item.altTrans) || (dhAlteracao &lt; item.altTrans)) {
+                            dhAlteracao = item.altTrans;
+                            if (dhAlteracao &lt; item.altOrdTrans) {
+                                dhAlteracao = item.altOrdTrans;
+                            }
+                            doc.alteracao = dhAlteracao.getTime().toString();
+                        }
+                    }}                    
+                    request.body = retorno;
+                </groovy>
+            </script>
+            <to uri="direct:dividir-linhas"/>
+        </route>
+        <!-- FIM PEDIDOS -->        
+
+        <route id="dividir-linhas">
+            <from uri="direct:dividir-linhas" />
+            <split>
+                <simple>${body}</simple>  
+                <to uri="direct:sincronizar-couchdb"/>
+            </split>
+        </route>
+
+        <route id="sincronizar-couchdb">        
+            <from uri="direct:sincronizar-couchdb"/>
+            <setProperty propertyName="tempBody">
+                <simple>${body}</simple>
+            </setProperty>
+            <setProperty propertyName="tempId">
+                <simple>${body.get_id()}</simple>
+            </setProperty>
+            <setHeader headerName="CamelHttpMethod">
+                <constant>GET</constant>
+            </setHeader>
+            <setHeader headerName="CamelHttpUri">
+                <simple>http://{{couchDBServer}}/{{couchDBDatabase}}/_design/alteracao/_view/alteracao?start_key=%22${exchangeProperty[tempId]}%22&amp;end_key=%22${exchangeProperty[tempId]}%22</simple>
+            </setHeader>
+            <setBody>
+                <constant>null</constant>
+            </setBody>
+            <doTry>
+                <to uri="http4:x?authenticationPreemptive=true&amp;authUsername={{couchDBUserName}}&amp;authPassword={{couchDBPassword}}&amp;proxyAuthHost=127.0.0.1&amp;proxyAuthPort=33128&amp;connectionClose=true"/>
+                <unmarshal ref="json" />
+                <setProperty propertyName="alteracao">
+                    <simple>${body.get('rows').get(0).get('value').get('alteracao')}</simple>
+                </setProperty>
+                <setProperty propertyName="revisao">
+                    <simple>${body.get('rows').get(0).get('value').get('_rev')}</simple>
+                </setProperty>
+                <setProperty propertyName="versao">
+                    <simple>${body.get('rows').get(0).get('value').get('versao')}</simple>
+                </setProperty>
+                <doCatch>            
+                    <exception>java.lang.Exception</exception>
+                    <setProperty propertyName="alteracao">
+                        <constant></constant>
+                    </setProperty>
+                    <setProperty propertyName="revisao">
+                        <constant></constant>
+                    </setProperty>
+                </doCatch>
+            </doTry>
+            <setBody>
+                <simple>${exchangeProperty[tempBody]}</simple>
+            </setBody>
+            <choice>
+                <when>
+                    <groovy>(exchange.getProperty('alteracao') != request.body.alteracao) || (exchange.getProperty('versao') != request.body.versao)</groovy>
+                    <script>
+                        <groovy>
+                            if (exchange.getProperty('revisao') != '') {
+                                request.body._rev = exchange.getProperty('revisao').replace('"','');
+                            }
+                        </groovy>
+                    </script>
+                    <marshal ref="json" />
+                    <convertBodyTo type="String" />
+                    <!-- 
+                    <to uri="couchdb:http://{{couchDBServer}}/{{couchDBDatabase}}?username={{couchDBUserName}}&amp;password={{couchDBPassword}}"/>                                        
+                    -->
+                    <setHeader headerName="CamelHttpMethod">
+                        <constant>PUT</constant>
+                    </setHeader>
+                    <setHeader headerName="CamelHttpUri">
+                        <simple>http://{{couchDBServer}}/{{couchDBDatabase}}/${exchangeProperty[tempId]}</simple>
+                    </setHeader>
+                    <to uri="http4:x?authenticationPreemptive=true&amp;authUsername={{couchDBUserName}}&amp;authPassword={{couchDBPassword}}&amp;proxyAuthHost=127.0.0.1&amp;proxyAuthPort=33128&amp;connectionClose=true"/>
+                </when>
+                <otherwise>
+                </otherwise>
+            </choice>
+        </route>
+
+    </camelContext>
+ 
+</blueprint>

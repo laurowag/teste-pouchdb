@@ -30,6 +30,7 @@ class ListaPedidosContainer extends React.Component<Props, State> {
 	}
 	
 	componentDidMount() {
+		console.log('carregou');
 		this.carregarLista();
 	}
 
@@ -53,19 +54,25 @@ class ListaPedidosContainer extends React.Component<Props, State> {
 			idemp: '1',
 			referencia: 'proposta:01',
 			dataemi: '2017-11-01',
+			dataent: '2017-11-01',
 			idcli: '1',
 			idend: '1',
-			idttr: '1',
+			idttr: '23',
 			obssit: 'Em criação',
 			sit: '0',
 			frete: '0',
 			desc: '0',
 			obs: 'Teste de obs',
-			vcto: '2018-04-30',
+			dvcto: '2018-04-30',
 			usuario: 'lauro',
+			cfop: '5102A',
+			idm: 'R$',
 			itens: [
 				{ 
-					idprod: '1',
+					idprod: '2710',
+					idcult: '6',
+					idv1: '203',
+					iduv1: '248',
 					produto: 'Descrição do produto',
 					qtd: '1',
 					descv: '0',
@@ -73,7 +80,8 @@ class ListaPedidosContainer extends React.Component<Props, State> {
 					custo: '5',
 					frete: '0',
 					descrat: '0',
-					idtpr: '1',
+					idipr: '74791',
+					idemb: '',
 				}
 			],
 		};
@@ -84,7 +92,7 @@ class ListaPedidosContainer extends React.Component<Props, State> {
 	enviarPedido() {
 		if (this.state.itemSelecionado) {
 			if ((this.state.itemSelecionado.sit === '0') || (this.state.itemSelecionado.sit === '2')) {
-				this.setState({itemSelecionado: _.merge(this.state.itemSelecionado, {sit: '1', obssit: 'Em análise'})});
+				this.setState({itemSelecionado: _.merge(this.state.itemSelecionado, {sit: '1', obssit: 'Em análise', erro: ''})});
 				this.localDB.put(this.state.itemSelecionado).then(() => this.setState({itemSelecionado: {}}));
 				this.carregarLista();
 			}

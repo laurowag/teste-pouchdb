@@ -16,7 +16,7 @@ class ListaItens extends React.Component<Props, State> {
             <Content>
                 <Text>sel: {this.props.itemSelecionado ? this.props.itemSelecionado._id : ''}</Text>
                 <List dataArray={this.props.pedidos}
-                    renderRow={pedido => <ListItem key={pedido._id} onPress={() => this.props.onSelecionarItem(pedido._id)}><Text>{pedido._id} - {pedido.dataemi} - {pedido.obssit}</Text></ListItem>} />
+                    renderRow={pedido => <ListItem key={pedido._id} onPress={() => this.props.onSelecionarItem(pedido._id)}><Text>{pedido._id} - {pedido.dataemi} - {pedido.obssit} - {pedido.erro} - {pedido.idtr}</Text></ListItem>} />
             </Content>
 		);
 	}

@@ -35,8 +35,8 @@ export default function(state = initialState, action) {
 				);
 		produtos = produtos.map(item => {
 			item.precos = state.listaPrecos.reduce((previousValue, currentValue) => {
-				return previousValue + currentValue.itens.filter(itempreco => itempreco.prod === item.id).length
-			}, 0);
+				return previousValue.push(...currentValue.itens.filter(itempreco => itempreco.prod === item.id))
+			}, []);
 			return item;
 		});
 		return {

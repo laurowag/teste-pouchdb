@@ -49,8 +49,10 @@ class DatabaseConnection {
         })
         .on('complete', function () {
             //Replicacao de retorno
-            x._pouchDB.replicate.from(remoteDB, {batch_size: 10, timeout: 20000, retry: true, filter: 'filtros/porUsuario', query_params: {'usuario': 'lauro'}})
-            .on('complete', function (info) {
+            x._pouchDB.replicate.from(remoteDB, {batch_size: 10, timeout: 10000, retry: true, filter: 'filtros/porUsuario', query_params: {'usuario': 'lauro'}})
+            .on('change', function (info) {
+                console.log(info);
+            }).on('complete', function (info) {
                 console.log(info);
                 if (onComplete) {
                     onComplete(info);
